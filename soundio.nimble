@@ -9,5 +9,7 @@ srcDir        = "src"
 
 
 # Dependencies
+before install:
+  exec("git clone https://github.com/andrewrk/libsoundio")
 
 requires "nim >= 1.0.0"
