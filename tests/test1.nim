@@ -10,4 +10,4 @@ import unittest
 import soundio
 
 
-echo soundio_version_string()
+echo version_string()

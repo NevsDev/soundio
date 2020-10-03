@@ -1,10 +1,11 @@
 import os
 
 
-template getLibPath(): TaintedString =
-  let info = joinPath(splitFile(instantiationInfo(fullPaths = true).filename).dir, "/../../libsoundio/")
-  info
-const soundioPath = getLibPath()
+# template getLibPath(): TaintedString =
+#   let info = joinPath(splitFile(currentSourcePath()).dir, "/libsoundio/")
+#   info
+const currentPath = splitFile(currentSourcePath()).dir
+const soundioPath = joinPath(currentPath, "/libsoundio/")
 
 # pkg-config --cflags --libs jack
 
@@ -49,7 +50,7 @@ when defWASAPI:
   .}
 when defJACK:
   {.
-    passC: "-DSOUNDIO_HAVE_JACK=1",
+    passC: "-DSOUNDIO_HAVE_JACK=1 -I" & currentPath & "deps/jack",
     compile: soundioPath & "src/jack.c",
     passL: "-ljack -lpthread",
   .}
@@ -72,8 +73,7 @@ when defCOREADIO:
   .}
 
 {.
-  passC: "-I" & soundioPath,
-  passC: "-I" & soundioPath & "soundio",
+  passC: "-I" & soundioPath & "-I" & soundioPath & "soundio -I" & currentPath,
   compile: soundioPath & "src/soundio.c",
   compile: soundioPath & "src/util.c",
   compile: soundioPath & "src/os.c",
