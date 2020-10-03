@@ -1,3 +1,10 @@
-tests/*
-!/tests/*.nim
-!/tests/*.nims
+# Ignore all
+*
+# Unignore all with extensions
+!*.*
+# Unignore all dirs
+!*/
+
+
+*.jpg
+*.jpeg
