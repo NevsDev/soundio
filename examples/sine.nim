@@ -1,138 +1,89 @@
-import math
-import soundio
+import soundio, math
 
-type
-  ResultKind = enum Ok, Err
-  Result[T] = object
-    case kind: ResultKind
-    of Ok: value: T
-    of Err: msg: string
+var PI*: cfloat = 3.1415926535
 
-# ---
+var seconds_offset*: cfloat = 0.0
 
-proc writeCallback(outStream: ptr SoundIoOutStream, frameCountMin: cint, frameCountMax: cint) {.cdecl.} =
-  let csz = sizeof SoundIoChannelArea
-  let deltaPhase = 1.0/outStream.sampleRate.toFloat
-  var areas: ptr SoundIoChannelArea
-  var phase = cast[ptr float64](outStream.userdata)
-  var framesLeft = frameCountMax
+proc write_callback*(outstream: ptr SoundIoOutStream, frame_count_min: cint, frame_count_max: cint) {.cdecl.} =
+  var 
+    layout: ptr SoundIoChannelLayout = addr(outstream.layout)
+    float_sample_rate: cfloat = outstream.sample_rate.cfloat
+    seconds_per_frame: cfloat = 1.0 / float_sample_rate
+    areas: ptr UncheckedArray[SoundIoChannelArea]
+    frames_left: cint = frame_count_max
+    err: cint
+
+  while frames_left > 0:
+    var 
+      frame_count: cint = frames_left
+    err = soundio_outstream_begin_write(outstream, addr(areas), addr(frame_count))
+    if err != 0:
+      echo("Error 1", soundio_strerror(err))
+      quit(1)
+    if frame_count == 0:
+      break
+    var 
+      pitch: cfloat = 440.0
+      radians_per_second: cfloat = pitch * 2.0 * PI
+    for frame in 0..<frame_count:
+      var sample: cfloat = sin((seconds_offset + frame.cfloat * seconds_per_frame) * radians_per_second)
+      for channel in 0..<layout.channel_count:
+        write_sample(areas[channel], sample)
+        areas[channel].data += areas[channel].step
+    seconds_offset = (seconds_offset + seconds_per_frame * frame_count.cfloat) mod 1.0
+    err = soundio_outstream_end_write(outstream)
+    if err != 0:
+      echo("Error 2", soundio_strerror(err))
+      quit(1)
+    dec(frames_left, frame_count)
+  echo("end of write callback")
+
+proc main*() =
   var err: cint
+  var soundio: ptr SoundIo = soundio_create()
+  if soundio == nil:
+    echo("out of memory")
+    quit(1)
+  # err = soundio_connect_backend(soundio, SoundIoBackendAlsa)
+  # err = soundio_connect_backend(soundio, SoundIoBackend)
+  err = soundio_connect(soundio)
+  if err != 0:
+    echo("error connecting: ", soundio_strerror(err))
+    quit(1)
+  soundio_flush_events(soundio)
+  var default_out_device_index: cint = soundio_default_output_device_index(soundio)
+  if default_out_device_index < 0:
+    echo("no output device found")
+    quit 1
+  var device: ptr SoundIoDevice = soundio_get_output_device(soundio, default_out_device_index)
+  if device == nil:
+    echo("out of memory")
+    quit 1
+  echo("Output device: ", device.name)
+  var outstream: ptr SoundIoOutStream = soundio_outstream_create(device)
+  if outstream == nil:
+    echo("out of memory")
+    quit 1
+
+  outstream.format = SoundIoFormatFloat32NE
+  # outstream.layout = soundio_channel_layout_get_default(2)[]
+  outstream.write_callback = write_callback
+
+  err = soundio_outstream_open(outstream)
+  if err != 0:
+    echo("unable to open device: ", soundio_strerror(err))
+    quit 1
+  if outstream.layout_error != 0:
+    echo("unable to set channel layout: ", soundio_strerror(outstream.layout_error))
+  err = soundio_outstream_start(outstream)
+  if err != 0:
+    echo("unable to start device: ", soundio_strerror(err))
+    quit 1
   while true:
-    var frameCount = framesLeft
-    err = outStream.beginWrite(areas.addr, frameCount.addr)
-    if err > 0:
-      quit "Unrecoverable stream error: " & $err.strerror
-    if frameCount <= 0:
-      break
-    let layout = outstream.layout
-    let ptrAreas = cast[int](areas)
-    for frame in 0..<frameCount:
-      let sample = sin 440.0*2.0*PI*phase[]
-      phase[] += deltaPhase
-      for channel in 0..<layout.channelCount:
-        let ptrArea = cast[ptr SoundIoChannelArea](ptrAreas + channel*csz)
-        var ptrSample = cast[ptr float32](cast[int](ptrArea.pointer) + frame*ptrArea.step)
-        ptrSample[] = sample
-    err = outstream.endWrite
-    if err > 0 and err != cint(SoundIoError.Underflow):
-      quit "Unrecoverable stream error: " & $err.strerror
-    framesLeft -= frameCount
-    if framesLeft <= 0:
-      break
+    soundio_wait_events(soundio)
+  soundio_outstream_destroy(outstream)
+  soundio_device_unref(device)
+  soundio_destroy(soundio)
+  quit(0)
 
-# ---
-
-type
-  SoundSystem = object
-    sio: ptr SoundIo
-    device: ptr SoundIoDevice
-
-proc `=destroy`(s: var SoundSystem) =
-  s.device.unref
-  s.sio.destroy
-
-proc sserr(msg: string): Result[SoundSystem] =
-  return Result[SoundSystem](kind: Err, msg: msg)
-
-proc newSoundSystem(): Result[SoundSystem] =
-  let sio = soundioCreate()
-  if sio.isNil:
-    return sserr "out of mem"
-
-  var err = sio.connect
-  if err > 0:
-    return sserr "Unable to connect to backend: " & $err.strerror
-
-  echo "Backend: \t", sio.currentBackend.name
-  sio.flushEvents
-
-  let devID = sio.defaultOutputDeviceIndex
-  if devID < 0:
-    return sserr "Output device is not found"
-  let device = sio.getOutputDevice(devID)
-  if device.isNil:
-    return sserr "out of mem"
-  if device.probeError > 0:
-    return sserr "Cannot probe device"
-
-  echo "Output device:\t", device.name
-
-  return Result[SoundSystem](
-    kind: Ok,
-    value: SoundSystem(sio: sio, device: device))
-
-# ---
-
-type
-  OutStream = object
-    stream: ptr SoundIoOutStream
-    userdata: pointer
-
-proc `=destroy`(s: var OutStream) =
-  s.stream.destroy
-  if s.userdata != nil:
-    dealloc(s.userdata)
-
-proc oserr(msg: string): Result[OutStream] =
-  return Result[OutStream](kind: Err, msg: msg)
-
-proc newOutStream(ss: SoundSystem): Result[OutStream] =
-  let stream = ss.device.outStreamCreate
-  stream.write_callback = writeCallback
-  var phase = alloc(sizeof(float64))
-  stream.userdata = phase
-
-  var err = stream.open
-  if err > 0:
-    return oserr "Unable to open device: " & $err.strerror
-
-  if stream.layoutError > 0:
-    return oserr "Unable to set channel layout: " & $stream.layoutError.strerror
-
-  err = stream.start
-  if err > 0:
-    return oserr "Unable to start stream: " & $err.strerror
-
-  return Result[OutStream](kind: Ok, value: OutStream(stream: stream, userdata: phase))
-
-# ---
-
-let rss = newSoundSystem()
-if rss.kind == Err:
-  quit rss.msg
-let ss = rss.value
-
-let ros = newOutStream(ss)
-if ros.kind == Err:
-  quit ros.msg
-let outstream = ros.value.stream
-
-echo "Format:\t\t", outstream.format
-echo "Sample Rate:\t", outstream.sampleRate
-echo "Latency:\t", outstream.softwareLatency
-
-while true:
-  ss.sio.flushEvents
-  let s = stdin.readLine
-  if s == "quit":
-    break
+main()

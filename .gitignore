@@ -5,3 +5,6 @@
 # Unignore all dirs
 !*/
 
+!LICENSE
+
+*.wav
