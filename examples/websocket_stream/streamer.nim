@@ -19,15 +19,12 @@ proc createBuffer(): Buffer =
 
 proc update*(buf: Buffer, data: ptr uint8, data_size: int) =
   withLock buf.lock:
-    var new_size = data_size * 4
+    var new_size = data_size
     if buf.max_size < new_size:
       buf.max_size = data_size
       buf.data = cast[ptr UncheckedArray[float32]](reallocShared(buf.data, new_size))
     buf.size = new_size
-    # convert to float
-    for i in 0..<data_size:
-      buf.data[i] = data[i].float32 / 128.0 - 1.0
-    # copyMem(buf.data[0].addr, data, data_size)
+    copyMem(buf.data[0].addr, data, data_size)
     buf.packet_id.inc()
 
 proc sendTo*(buf: Buffer, ws: Websocket, last_packet: ptr uint32) {.async.} =
@@ -63,7 +60,7 @@ var abuffer: Buffer = createBuffer()
 const
   enc_format = SoundIoFormatU8
   channels = 1
-  sampleRate = 8000
+  sampleRate = 48000
   flushingTime = 1000
 
 var server = newAsyncHttpServer()
@@ -73,7 +70,7 @@ proc cb(req: Request) {.async.} =
 
     # 1. create player
     var msg = %*{
-      "encoding": "32bitFloat",
+      "encoding": $uint8,
       "channels": channels,
       "sampleRate": sampleRate,
       "flushingTime": flushingTime,
@@ -271,7 +268,7 @@ proc record() =
   # consider a better shutdown strategy.
   while true:
     soundio_flush_events(soi)
-    # sleep(flushingTime)
+    sleep(100)
     var 
       fill_bytes = soundio_ring_buffer_fill_count(rc.ring_buffer)
     

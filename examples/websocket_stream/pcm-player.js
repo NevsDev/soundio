@@ -4,7 +4,7 @@ function PCMPlayer(option) {
 
 PCMPlayer.prototype.init = function(option) {
   var defaults = {
-      encoding: '16bitInt',
+      encoding: 'int16',
       channels: 1,
       sampleRate: 8000,
       flushingTime: 1000
@@ -14,30 +14,54 @@ PCMPlayer.prototype.init = function(option) {
   this.flush = this.flush.bind(this);
   this.interval = setInterval(this.flush, this.option.flushingTime);
   this.maxValue = this.getMaxValue();
+  this.valueOffset = this.getValueOffset();
   this.typedArray = this.getTypedArray();
   this.createContext();
 };
 
 PCMPlayer.prototype.getMaxValue = function () {
   var encodings = {
-      '8bitInt': 128,
-      '16bitInt': 32768,
-      '32bitInt': 2147483648,
-      '32bitFloat': 1
+      'int8': 128,
+      'uint8': 128,
+      'int16': 32768,
+      'uint16': 32768,
+      'int32': 2147483648,
+      'uint32': 2147483648,
+      'float32': 1,
+      'float64': 1
   }
 
-  return encodings[this.option.encoding] ? encodings[this.option.encoding] : encodings['16bitInt'];
+  return encodings[this.option.encoding] ? encodings[this.option.encoding] : encodings['int16'];
+};
+
+PCMPlayer.prototype.getValueOffset = function () {
+  var offset = {
+      'int8': 0,
+      'uint8': -128,
+      'int16': 0,
+      'uint16': -32768,
+      'int32': 0,
+      'uint32': -2147483648,
+      'float32': 0,
+      'float64': 0
+  }
+
+  return offset[this.option.encoding] ? offset[this.option.encoding] : offset['int16'];
 };
 
 PCMPlayer.prototype.getTypedArray = function () {
   var typedArrays = {
-      '8bitInt': Int8Array,
-      '16bitInt': Int16Array,
-      '32bitInt': Int32Array,
-      '32bitFloat': Float32Array
+      'int8': Int8Array,
+      'uint8': Uint8Array,
+      'int16': Int16Array,
+      'uint16': Uint16Array,
+      'int32': Int32Array,
+      'uint32': Uint32Array,
+      'float32': Float32Array,
+      'float64': Float64Array
   }
 
-  return typedArrays[this.option.encoding] ? typedArrays[this.option.encoding] : typedArrays['16bitInt'];
+  return typedArrays[this.option.encoding] ? typedArrays[this.option.encoding] : typedArrays['int16'];
 };
 
 PCMPlayer.prototype.createContext = function() {
@@ -66,9 +90,9 @@ PCMPlayer.prototype.getFormatedValue = function(data) {
       float32 = new Float32Array(data.length),
       i;
 
-  for (i = 0; i < data.length; i++) {
-      float32[i] = data[i] / this.maxValue;
-  }
+  if(this.option.encoding != "float32")
+    for (i = 0; i < data.length; i++)
+        float32[i] = (data[i] + this.valueOffset) / this.maxValue;
   return float32;
 };
 
